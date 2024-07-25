@@ -1,0 +1,6 @@
+# Build
+bin/
+obj/
+
+# IDE
+.vs/
