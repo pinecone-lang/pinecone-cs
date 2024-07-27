@@ -18,7 +18,7 @@ tags: string[] = ["tag01", "tag02"]
 usePassword: boolean == false // you can also write 0 or 1
 ```
 ## Usage example
-```js
+```cs
 using PineconeSharp;
 
 namespace PineconeDemo
