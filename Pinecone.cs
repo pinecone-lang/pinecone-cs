@@ -1,124 +1,200 @@
 ﻿namespace PineconeSharp
 {
+    public struct PineconeParseOptions
+    {
+        public PineconeParseOptions()
+        {
+            readFile = true;
+        }
+
+        public PineconeParseOptions(bool readFile)
+        {
+            this.readFile = true;
+        }
+
+        public bool readFile;
+    }
+
     public class Pinecone
     {
-        public static Dictionary<string, object> Parse(string filePath)
+        public static Dictionary<string, object> Parse(string x, PineconeParseOptions options)
         {
-            try
+            string content = x;
+
+            if (options.readFile)
             {
-                Dictionary<string, object> obj = new Dictionary<string, object>();
-
-                using (StreamReader reader = new StreamReader(filePath))
+                try
                 {
-                    string? line;
-
-                    while ((line = reader.ReadLine()) != null)
-                    {
-                        if (line.Length < 1)
-                            continue;
-
-                        IterationStates iterationState = IterationStates.Key;
-
-                        bool isString = false;
-                        bool isComment = false;
-                        string key = "";
-                        string type = "";
-                        string value = "";
-
-                        for (int i = 0; i < line.Length; i++)
-                        {
-                            char c = line[i];
-
-                            if (c == '/' && line[i + 1] == '/')
-                            {
-                                isComment = true;
-                                break;
-                            }
-
-                            if (c == '"' || c == '\'')
-                                isString = !isString;
-
-                            if (c == ' ' && !isString)
-                                continue;
-
-                            if (c == ':')
-                            {
-                                iterationState = IterationStates.Type;
-                                continue;
-                            }
-
-                            if (c == '=')
-                            {
-                                iterationState = IterationStates.Value;
-                                continue;
-                            }
-
-                            switch (iterationState)
-                            {
-                                case IterationStates.Key:
-                                    key += c;
-                                    break;
-                                case IterationStates.Type:
-                                    type += c;
-                                    break;
-                                case IterationStates.Value:
-                                    value += c;
-                                    break;
-                            }
-                        }
-
-                        if (isComment && type.Length < 1)
-                            continue;
-
-                        object parsedValue;
-
-                        switch (type)
-                        {
-                            case "string":
-                                char startsWith = value[0];
-                                char endsWith = value[value.Length - 1];
-
-                                if ((startsWith != '"' && startsWith != '\'') || endsWith != startsWith)
-                                    throw new Exception("Value at key \"" + key + "\" on line " + (0 + 1) + " does not match it's type (" + type + ")"); // change 0 to index
-
-                                parsedValue = value.Substring(0, value.Length - 1).Substring(1);
-                                break;
-                            case "int":
-                                int v = 0;
-
-                                if (!Int32.TryParse(value, out v))
-                                    throw new Exception("Value at key \"" + key + "\" on line " + (0 + 1) + " does not match it's type (" + type + ")");
-
-                                parsedValue = v;
-                                break;
-                            case "float":
-                                float f = 0;
-
-                                if (!float.TryParse(value.Replace(".", ","), out f))
-                                    throw new Exception("Value at key \"" + key + "\" on line " + (0 + 1) + " does not match it's type (" + type + ")");
-
-                                parsedValue = f;
-                                break;
-                            default:
-                                throw new Exception("Unknown type \"" + type + "\" on line " + (0 + 1));
-                        }
-
-                        obj[key] = parsedValue;
-                    }
-
+                    StreamReader reader = new StreamReader(x);
+                    content = reader.ReadToEnd();
                     reader.Close();
                 }
+                catch (FileNotFoundException ex)
+                {
+                    throw new Exception("Pinecone file not found: " + x);
+                }
+                catch (Exception ex)
+                {
+                    throw new Exception("Unhandled exception: " + ex);
+                }
+            }
 
-                return obj;
-            }
-            catch (FileNotFoundException ex)
+            string[] lines = content.Split("\n");
+
+            Dictionary<string, object> parsed = new Dictionary<string, object>();
+
+            for (int i = 0; i < lines.Length; i++)
             {
-                throw new Exception("Pinecone file not found: " + filePath);
+                string line = lines[i].Replace("\r", "");
+
+                if (line.Length < 1)
+                    continue;
+
+                IterationStates iterationState = IterationStates.Key;
+
+                bool isString = false;
+                bool isComment = false;
+                bool isArray = false;
+                string key = "";
+                string type = "";
+                string value = "";
+
+                for (int i2 = 0; i2 < line.Length; i2++)
+                {
+                    char currentChar = line[i2];
+                    char nextChar = i2 + 1 > line.Length - 1 ? ' ' : line[i2 + 1];
+
+                    if (currentChar == '/' && nextChar == '/')
+                    {
+                        isComment = true;
+                        break;
+                    }
+
+                    if (currentChar == '"' || currentChar == '\'')
+                        isString = !isString;
+
+                    if (currentChar == ' ' && !isString)
+                        continue;
+
+                    if (currentChar == ':')
+                    {
+                        iterationState = IterationStates.Type;
+                        continue;
+                    }
+
+                    if (currentChar == '=')
+                    {
+                        iterationState = IterationStates.Value;
+                        continue;
+                    }
+
+                    switch (iterationState)
+                    {
+                        case IterationStates.Key:
+                            key += currentChar;
+                            break;
+                        case IterationStates.Type:
+                            if (currentChar == '[' && nextChar == ']')
+                            {
+                                isArray = true;
+                                i2 += 1; // skip over next iteration
+                                break;
+                            }
+
+                            type += currentChar;
+                            break;
+                        case IterationStates.Value:
+                            value += currentChar;
+                            break;
+                    }
+                }
+
+                if (isComment && type.Length < 1)
+                    continue;
+
+                var parseResult = parseValue(isArray, type, value);
+
+                if (parseResult.Item2)
+                    throw new Exception("Value at key \"" + key + "\" on line " + (i + 1) + " does not match it's type (" + type + ")");
+
+                parsed[key] = parseResult.Item1;
             }
-            catch (Exception ex)
+
+            return parsed;
+        }
+
+        private static Tuple<object, bool> parseValue(bool isArray, string type, string value)
+        {
+            object parsedValue = 0;
+
+            if (isArray)
             {
-                throw new Exception("Unhandled exception: " + ex);
+                char startsWith = value[0];
+                char endsWith = value[value.Length - 1];
+
+                if (startsWith != '[' || endsWith != ']')
+                    return new Tuple<object, bool>(0, true);
+
+                var arr = new List<object>();
+
+                string[] elements = value.Substring(0, value.Length - 1).Substring(1).Split(",");
+
+                for (int i = 0; i < elements.Length; i++)
+                {
+                    var result = parseValue(false, type, elements[i]);
+
+                    if (result.Item2)
+                        return result; // instead of creating a new instance of a tuple, we are going to return the already existing result if item1 (typeError) is true
+
+                    arr.Add(result.Item1);
+                }
+
+                parsedValue = arr.ToArray();
             }
+            else
+            {
+                switch (type)
+                {
+                    case "string":
+                        char startsWith = value[0];
+                        char endsWith = value[value.Length - 1];
+
+                        if ((startsWith != '"' && startsWith != '\'') || endsWith != startsWith)
+                            return new Tuple<object, bool>(0, true);
+
+                        parsedValue = value.Substring(0, value.Length - 1).Substring(1);
+                        break;
+                    case "int":
+                        int i;
+
+                        if (!Int32.TryParse(value, out i))
+                            return new Tuple<object, bool>(0, true);
+
+                        parsedValue = i;
+                        break;
+                    case "float":
+                        float fl;
+
+                        if (!float.TryParse(value.Replace(".", ","), out fl))
+                            return new Tuple<object, bool>(0, true);
+
+                        parsedValue = fl;
+                        break;
+                    case "boolean":
+                        if (value == "true" || value == "1")
+                            parsedValue = true;
+                        else if (value == "false" || value == "0")
+                            parsedValue = false;
+                        else
+                            return new Tuple<object, bool>(0, true);
+
+                        break;
+                    default:
+                        return new Tuple<object, bool>(0, true);
+                }
+            }
+
+            return new Tuple<object, bool>(parsedValue, false);
         }
 
         private enum IterationStates
