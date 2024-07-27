@@ -64,7 +64,7 @@
                     char currentChar = line[i2];
                     char nextChar = i2 + 1 > line.Length - 1 ? ' ' : line[i2 + 1];
 
-                    if (currentChar == '/' && nextChar == '/')
+                    if (currentChar == '/' && nextChar == '/' && !isString)
                     {
                         isComment = true;
                         break;
@@ -76,13 +76,13 @@
                     if (currentChar == ' ' && !isString)
                         continue;
 
-                    if (currentChar == ':')
+                    if (currentChar == ':' && !isString)
                     {
                         iterationState = IterationStates.Type;
                         continue;
                     }
 
-                    if (currentChar == '=')
+                    if (currentChar == '=' && !isString)
                     {
                         iterationState = IterationStates.Value;
                         continue;
